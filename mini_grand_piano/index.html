@@ -8,6 +8,7 @@
 <style>
 :root{color-scheme:dark;--bg:#0d0f14;--panel:#151922;--panel2:#1d2331;--line:#283043;--text:#e8ebf2;--muted:#8b94a8;--accent:#7aa2ff;--good:#3ddc97;--bad:#ff5d6c;--warn:#ffcf5c}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 body{display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidden}
 header{display:flex;align-items:center;justify-content:space-between;gap:10px 16px;padding:10px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
@@ -72,7 +73,7 @@ body.cascade .kb{flex:0 0 clamp(105px,24vh,210px);height:auto}
 .w .lbl{color:#5a5f6c;font-weight:600}.w .lbl.c{color:#9aa0ab}
 .b .lbl{color:#c9ccd4;font-size:clamp(7px,.8vw,10px)}
 .pc{color:#7aa2ff;font-weight:700;opacity:.85}
-.b .pc{color:#9db9ff}
+.b .pc{color:#9db9ff;font-size:clamp(7px,.8vw,10px);letter-spacing:-.02em}
 .w.hint2{background:linear-gradient(#eef3ff,#d9e4ff)}
 .b.hint2{background:linear-gradient(#34405e,#1d2438)}
 .w.hint{background:linear-gradient(#bcd0ff,#8fb0ff);box-shadow:inset 0 -7px 0 #6f93f0,0 2px 3px rgba(0,0,0,.55)}
@@ -119,7 +120,7 @@ body.cascade .kb{flex:0 0 clamp(105px,24vh,210px);height:auto}
       <h3>Cómo tocar</h3>
       <table class="help small">
         <tr><td class="muted">Mouse / táctil</td><td>Hacé clic o tocá las teclas. Deslizá para hacer glissando. Varios dedos = acordes.</td></tr>
-        <tr><td class="muted">Teclado PC</td><td>Fila inferior <kbd>Z</kbd>…<kbd>/</kbd> y fila superior <kbd>Q</kbd>…<kbd>]</kbd> (negras en <kbd>S</kbd><kbd>D</kbd><kbd>G</kbd>… y <kbd>2</kbd><kbd>3</kbd><kbd>5</kbd>…). <kbd>←</kbd> <kbd>→</kbd> cambian la octava.</td></tr>
+        <tr><td class="muted">Teclado PC</td><td>Cada tecla del piano tiene su tecla (se muestra sobre ella). Blancas: <kbd>1</kbd>…<kbd>0</kbd>, <kbd>Q</kbd>…<kbd>P</kbd>, <kbd>A</kbd>…<kbd>L</kbd> de grave a agudo (Do central = <kbd>T</kbd>). Negras: <kbd>Shift</kbd> + la blanca de su izquierda (Do#4 = <kbd>⇧T</kbd>). En «2 octavas (clásico)»: filas <kbd>Z</kbd>… y <kbd>Q</kbd>… con <kbd>←</kbd> <kbd>→</kbd> para cambiar de octava.</td></tr>
         <tr><td class="muted">Sustain</td><td>Mantené <kbd>Espacio</kbd> o activá el botón «Sustain». También funciona el pedal de un teclado MIDI.</td></tr>
       </table>
     </div>
@@ -210,8 +211,9 @@ body.cascade .kb{flex:0 0 clamp(105px,24vh,210px);height:auto}
   <button id="sus" title="Mantener Espacio también activa el sustain">Sustain</button>
   <button id="rev">Reverb</button>
   <div class="grp"><span class="lab">Nombres</span><select id="names"><option value="lat">Do Re Mi</option><option value="en">C D E</option><option value="off">Ocultar</option></select></div>
-  <div class="grp pconly"><label><input type="checkbox" id="pcl"> Teclas PC</label></div>
-  <div class="grp pconly"><span class="lab">Octava PC</span><button id="octD">◀</button><span id="octV" class="small"></span><button id="octU">▶</button></div>
+  <div class="grp pconly"><label><input type="checkbox" id="pcl"> Mostrar teclas PC</label></div>
+  <div class="grp pconly"><span class="lab">Teclado PC</span><select id="kbm"><option value="full">49 teclas (Shift = negras)</option><option value="classic">2 octavas (clásico)</option></select></div>
+  <div class="grp pconly" id="octGrp"><span class="lab">Octava</span><button id="octD">◀</button><span id="octV" class="small"></span><button id="octU">▶</button></div>
   <button id="midiBtn">Teclado MIDI</button>
   <span id="snd">Sonido: preparando…</span>
 </div>
@@ -370,12 +372,22 @@ const KEYLBL={Comma:',',Period:'.',Semicolon:';',Slash:'/',BracketLeft:'[',Equal
 let layoutMap=null;
 if(navigator.keyboard&&navigator.keyboard.getLayoutMap){navigator.keyboard.getLayoutMap().then(l=>{layoutMap=l;updateLabels();}).catch(()=>{});}
 let octBase=store.get('oct',48);if(![36,48,60].includes(octBase))octBase=48;
-let showPC=store.get('pcl',false);
+let showPC=store.get('pcl2',true);
+let kbMode=store.get('kbm','full'); // 'full' = 49 teclas (Shift = negras) · 'classic' = 2 octavas
+/* modo completo: las 29 blancas en 1…0, Q…P, A…L; cada negra = Shift + la blanca de su izquierda */
+const FULL=[...'1234567890'].map(c=>'Digit'+c).concat([...'QWERTYUIOPASDFGHJKL'].map(c=>'Key'+c));
+const WHITES=[];for(let m=LOW;m<=HIGH;m++)if(!isBlack(m))WHITES.push(m);
+function noteFor(code,shift){
+  if(kbMode==='full'){const i=FULL.indexOf(code);if(i<0)return null;const m=WHITES[i]+(shift?1:0);return m<=HIGH&&(!shift||isBlack(m))?m:null;}
+  if(!(code in KEYMAP))return null;const m=octBase+KEYMAP[code];return m<=HIGH?m:null;
+}
+const keyChar=code=>{let l=layoutMap&&layoutMap.get(code);if(!l)l=KEYLBL[code]||code.replace(/^Key|^Digit/,'');return l.toUpperCase();};
 
 function updateLabels(){
   const pcFor={};
-  if(showPC){for(const code in KEYMAP){const m=octBase+KEYMAP[code];if(m<=HIGH&&!(m in pcFor)){
-    let l=layoutMap&&layoutMap.get(code);if(!l)l=KEYLBL[code]||code.replace(/^Key|^Digit/,'');pcFor[m]=l.toUpperCase();}}}
+  if(showPC&&kbMode==='full'){FULL.forEach((code,i)=>{const w=WHITES[i],c=keyChar(code);pcFor[w]=c;if(isBlack(w+1)&&w+1<=HIGH)pcFor[w+1]='⇧'+c;});}
+  else if(showPC){for(const code in KEYMAP){const m=octBase+KEYMAP[code];if(m<=HIGH&&!(m in pcFor))pcFor[m]=keyChar(code);}}
+  $('#octGrp').hidden=kbMode==='full';
   for(let m=LOW;m<=HIGH;m++){
     const el=keyEl[m],lbl=el.lastChild,pc=el.firstChild;
     pc.textContent=pcFor[m]||'';
@@ -455,10 +467,10 @@ const isField=t=>t&&t.closest&&t.closest('input[type=number],input[type=text],se
 addEventListener('keydown',e=>{
   if(e.ctrlKey||e.metaKey||e.altKey||isField(e.target))return;
   if(e.code==='Space'){e.preventDefault();if(!e.repeat){spaceHeld=true;updateSustain();}return;}
-  if(e.code==='ArrowLeft'||e.code==='ArrowRight'){if(e.target.type==='range')return;e.preventDefault();shiftOct(e.code==='ArrowRight'?1:-1);return;}
-  if(!(e.code in KEYMAP))return;
+  if(kbMode==='classic'&&(e.code==='ArrowLeft'||e.code==='ArrowRight')){if(e.target.type==='range')return;e.preventDefault();shiftOct(e.code==='ArrowRight'?1:-1);return;}
+  const m=noteFor(e.code,e.shiftKey);
+  if(m==null){if(kbMode==='full'&&FULL.includes(e.code))e.preventDefault();return;}
   e.preventDefault();if(e.repeat||downKeys.has(e.code))return;
-  const m=octBase+KEYMAP[e.code];if(m>HIGH)return;
   downKeys.set(e.code,m);press(m,0.8);
 });
 addEventListener('keyup',e=>{
@@ -510,7 +522,11 @@ revB.addEventListener('click',()=>{Synth.setReverb(!Synth.rev);revB.classList.to
 const namesSel=$('#names');namesSel.value=nameMode;
 namesSel.addEventListener('change',()=>{nameMode=namesSel.value;store.set('names',nameMode);updateLabels();updateHeld();refreshTexts();});
 const pclC=$('#pcl');pclC.checked=showPC;
-pclC.addEventListener('change',()=>{showPC=pclC.checked;store.set('pcl',showPC);updateLabels();});
+pclC.addEventListener('change',()=>{showPC=pclC.checked;store.set('pcl2',showPC);updateLabels();});
+const kbmSel=$('#kbm');kbmSel.value=kbMode;
+kbmSel.addEventListener('change',()=>{releaseAll();kbMode=kbmSel.value;store.set('kbm',kbMode);updateLabels();});
+// que los selectores de la barra no "atrapen" el teclado después de usarlos
+document.querySelectorAll('.controls select').forEach(el=>el.addEventListener('change',()=>el.blur()));
 $('#octD').addEventListener('click',()=>shiftOct(-1));$('#octU').addEventListener('click',()=>shiftOct(1));
 // botones: que Espacio no los active
 document.querySelectorAll('button').forEach(b=>b.addEventListener('keydown',e=>{if(e.code==='Space')e.preventDefault();}));
